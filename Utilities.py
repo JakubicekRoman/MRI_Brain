@@ -10,6 +10,7 @@ import numpy as np
 import SimpleITK as sitk   
 import matplotlib.pyplot as plt
 from skimage import measure
+import torch
 
 
 def resample_image(itk_image, out_spacing=[1.0, 1.0, 1.0], is_label=False):
@@ -275,7 +276,13 @@ def bound_3D(img, add):
 
     borders=[]
     for i in range(0,len(loc)):
-        g = [int(loc[i].min()), int(loc[i].max())]
+        g = [int(loc[i].min())-add, int(loc[i].max())+add]
+        
+        if g[0]<0: g[0]=0
+        if g[1]<0: g[1]=0
+        if g[0]>np.size(img,i): g[0]=np.size(img,i)
+        if g[1]>np.size(img,i): g[1]=np.size(img,i)
+        
         borders.append(g[:])
     
     return borders
@@ -301,5 +308,123 @@ def bwareafilt(mask, n=1, area_range=(0, np.inf)):
 
 
 
+def construct_transf_matrix(params, resize_factor, inds, device):
+    
+    angle_rad, tx, ty = params
+    
+    theta = torch.zeros((len(inds)), 3, 3).to(device)
+    theta[:,2,2] = 1
+
+    theta[:,0,0] = resize_factor * torch.cos(angle_rad[inds])
+    theta[:,1,1] = resize_factor * torch.cos(angle_rad[inds])
+    theta[:,0,1] = torch.sin(angle_rad[inds])
+    theta[:,1,0] = -torch.sin(angle_rad[inds])
+    
+    theta[:,0,2] = tx[inds]
+    theta[:,1,2] = ty[inds]
+    
+    return theta
 
 
+def construct_transf_matrix_3D(params, resize_factor, inds, device):
+    
+    thx, thy, thz, tx, ty, tz = params
+    
+    
+    theta = torch.zeros((len(inds)), 4, 4).to(device)
+    theta[:,3,3] = 1
+    
+    R_z = torch.zeros((len(inds)), 3, 3).to(device)
+    R_z[:,2,2] = 1
+    R_z[:,0,0] = torch.cos(thz[inds])
+    R_z[:,0,1] = -torch.sin(thz[inds])
+    R_z[:,1,0] = torch.sin(thz[inds])
+    R_z[:,1,1] =  torch.cos(thz[inds])
+    
+    R_y = torch.zeros((len(inds)), 3, 3).to(device)
+    R_y[:,1,1] = 1
+    R_y[:,0,0] = torch.cos(thy[inds])
+    R_y[:,2,0] = -torch.sin(thy[inds])
+    R_y[:,0,2] = torch.sin(thy[inds])
+    R_y[:,2,2] =  torch.cos(thy[inds])
+    
+    R_x = torch.zeros((len(inds)), 3, 3).to(device)
+    R_x[:,0,0] = 1
+    R_x[:,1,1] = torch.cos(thx[inds])
+    R_x[:,2,1] = -torch.sin(thx[inds])
+    R_x[:,1,2] = torch.sin(thx[inds])
+    R_x[:,2,2] =  torch.cos(thx[inds])
+    
+    R = torch.bmm( torch.bmm(R_z, R_y), R_x )
+    # R = torch.bmm(R_z, R_y)
+    
+    T = torch.zeros((len(inds)), 3, 3).to(device)
+    T[:,0,0] = resize_factor
+    T[:,1,1] = resize_factor
+    T[:,2,2] = resize_factor
+ 
+    theta[:,0:3,0:3] = torch.bmm( T , R )
+    
+    theta[:,0,3] = tx[inds]
+    theta[:,1,3] = ty[inds]
+    theta[:,2,3] = tz[inds]
+
+    # theta[:,0,0] = resize_factor * torch.cos(angle_rad[inds])
+    # theta[:,1,1] = resize_factor * torch.cos(angle_rad[inds])
+    # theta[:,0,1] = torch.sin(angle_rad[inds])
+    # theta[:,1,0] = -torch.sin(angle_rad[inds])
+    
+    # theta[:,0,2] = tx[inds]
+    # theta[:,1,2] = ty[inds]
+    
+    return theta
+
+
+def show_3D(imgs):
+    num = imgs.shape[2]
+    for i in range(num):
+        plt.subplot(3, int(np.floor(num/3)), i + 1)
+        plt.imshow(imgs[:,:,i])
+        plt.gcf().set_size_inches(10, 10)
+    plt.show()
+
+
+
+
+class Randomizer():
+    
+    def __init__(self, num_batches, num_imgs):
+        self.num_batches = num_batches
+        self.num_imgs = num_imgs
+        self.rand_inds = np.random.permutation(num_imgs)
+        self.batch_num = 0
+        
+    
+    def get_batch_inds(self, batch_num):
+        ind_start = (self.num_imgs //  self.num_batches) * batch_num
+        ind_stop = (self.num_imgs //  self.num_batches) * (batch_num+1)
+        if batch_num == (self.num_batches - 1):
+            ind_stop = self.num_imgs 
+        inds = self.rand_inds[ind_start:ind_stop]
+        
+        return inds
+        
+    def __iter__(self):
+        return self
+        
+    def __next__(self):
+        self.batch_num  += 1
+        
+        if self.batch_num  == (self.num_batches + 1):
+            raise StopIteration
+            
+        inds =  self.get_batch_inds(self.batch_num - 1)
+        
+        return inds
+        
+    def order_corection(self,output):
+    
+        order_corection = np.argsort(self.rand_inds)
+        output = output[order_corection,:,:]
+        
+        return output

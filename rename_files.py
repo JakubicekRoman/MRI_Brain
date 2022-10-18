@@ -21,9 +21,9 @@ import Utilities as util
 
 ###### rename files for onetimes
 
-# pathDir = 'C:\Data\Jakubicek\MRI_Brain\Ambrozek\Outputs'
+pathDir = 'C:\Data\Jakubicek\MRI_Brain\Ambrozek\Outputs'
 # pathDir = 'C:\Data\Jakubicek\MRI_Brain\Bednarova\Outputs'
-pathDir = 'C:\Data\Jakubicek\MRI_Brain\Cip\Outputs'
+# pathDir = 'C:\Data\Jakubicek\MRI_Brain\Cip\Outputs'
 
 D = [ f for f in os.listdir(pathDir) if os.path.isfile(pathDir+'\\'+f) if (pathDir+'\\'+f).__contains__('.nii') if not (pathDir+'\\'+f).__contains__('mask') ]
 
