@@ -7,14 +7,16 @@ import torch
 class Config:
     
     # data_path = r'C:\Data\Jakubicek\MRI_Brain\Ambrozek\Outputs\comp'
-    # data_path = r'C:\Data\Jakubicek\MRI_Brain\Bednarova\Outputs\comp'
-    data_path = r'C:\Data\Jakubicek\MRI_Brain\Cip\Outputs\comp'
+    data_path = r'C:\Data\Jakubicek\MRI_Brain\Bednarova\Outputs\comp'
+    # data_path = r'C:\Data\Jakubicek\MRI_Brain\Cip\Outputs\comp'
 
-    seq = 'DCE_'
+    # seq = 'DCE_cut'
+    seq = 'DCE_orig'   
+    
     # seq = 'DSC_'
     # seq = 'DTI_'
     
-    save_sufix = seq + 'reg3'
+    save_sufix = seq + '_reg2'
     # save_sufixO = seq + 'orig3'
     
     # device = torch.device('cpu')
@@ -38,11 +40,11 @@ class Config:
     
     # iterations = [80,100,120]
     # iterations = [300,380,400]
-    iterations = [80,120,150]
+    iterations = [120,140,150]
     
     gamma = 0.1
     
-    num_batches = 1
+    num_batches = 10
     
     interp_mode = 'bilinear'
     # interp_mode = 'bicubic' 

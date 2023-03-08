@@ -5,12 +5,16 @@ Created on Thu Aug 18 14:14:02 2022
 @author: jakubicek
 """
 
-
+import os
 import numpy as np
 import SimpleITK as sitk   
 import matplotlib.pyplot as plt
 from skimage import measure
-import torch
+# import torch
+import time
+import nibabel as nib
+from skimage.transform import rescale
+from skimage.filters import gaussian
 
 
 def resample_image(itk_image, out_spacing=[1.0, 1.0, 1.0], is_label=False):
@@ -38,6 +42,19 @@ def resample_image(itk_image, out_spacing=[1.0, 1.0, 1.0], is_label=False):
 
     return resample.Execute(itk_image) 
 
+
+def resize_pyramid(imgs, masks, scale, sigma, np_dtype):
+    
+    imgs_res = []
+    masks_res = []
+    for img, mask in zip(imgs,masks):
+        if sigma > 0:
+            img = gaussian(img,sigma)
+            
+        imgs_res.append(rescale(img, 1/scale, preserve_range=True).astype(np_dtype))
+        masks_res.append(rescale(mask, 1/scale, preserve_range=True).astype(np_dtype))
+        
+    return np.stack(imgs_res,0), np.stack(masks_res,0) 
 
 
 def resave_dicom(data_directory, out_dir, name, ser, info, bias=True):
@@ -77,10 +94,20 @@ def resave_dicom(data_directory, out_dir, name, ser, info, bias=True):
         
     image_out = sitk.Cast(image_out, sitk.sitkInt16)
     
+    image_out.SetOrigin((0, 0, 0))
+    image_out.SetSpacing((1,1,1))
+    # image_out.SetDirection(tuple((0.0, 0.0, 1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 0.0)))
+    image_out.SetDirection(tuple((1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)))
+    
     # sitk.Show(orig, debugOn=True)
     # sitk.Show(image_out, debugOn=True)
     
-    path_save_temp = out_dir + '\\' + name + '_' + str(ser) + '.nii.gz'
+    ser_num = f"{ser:04d}"
+
+    # A.SetOrigin((0, 0, 0))
+    # A.SetSpacing((1,1,1))
+    
+    path_save_temp = out_dir + '\\' + name + '_' + ser_num + '.nii.gz'
     writer = sitk.ImageFileWriter()    
     writer.SetFileName(path_save_temp)
     writer.Execute(image_out)
@@ -88,6 +115,22 @@ def resave_dicom(data_directory, out_dir, name, ser, info, bias=True):
     
     # return path_save_temp, info
     return path_save_temp
+
+def check_orientation(ct_image, ct_arr):
+    """
+    Check the NIfTI orientation, and flip to  'RPS' if needed.
+    :param ct_image: NIfTI file
+    :param ct_arr: array file
+    :return: array after flipping
+    """
+    x, y, z = nib.aff2axcodes(ct_image.affine)
+    if x != 'R':
+        ct_arr = nib.orientations.flip_axis(ct_arr, axis=0)
+    if y != 'P':
+        ct_arr = nib.orientations.flip_axis(ct_arr, axis=1)
+    if z != 'S':
+        ct_arr = nib.orientations.flip_axis(ct_arr, axis=2)
+    return ct_arr
 
 
 def read_nii(file_name, current_index):   
@@ -194,11 +237,11 @@ def resize_with_padding(img, expected_size):
     padding = np.array([pad_width, pad_height, delta_width - pad_width, delta_height - pad_height])
     padding[padding<0]=0
     img = np.pad(img, [(padding[0], padding[2]), (padding[1], padding[3])], mode='constant')
-    img = crop_center(img, new_width=expected_size[0], new_height=expected_size[1])
+    img = crop_center_2D(img, new_width=expected_size[0], new_height=expected_size[1])
     return img
 
 
-def crop_center(img, new_width=None, new_height=None):        
+def crop_center_2D(img, new_width=None, new_height=None):        
     width = img.shape[1]
     height = img.shape[0]
     if new_width is None:
@@ -221,6 +264,19 @@ def crop_center(img, new_width=None, new_height=None):
     return center_cropped_img
 
 
+def crop_center_3D(img,cropx,cropy,cropz):
+    y,x,z = img.shape[0:3]
+    startx = x//2-(cropx//2)
+    starty = y//2-(cropy//2)
+    startz = z//2-(cropz//2)
+    return img[starty:starty+cropy,startx:startx+cropx,startz:startz+cropz]
+
+
+def crop_center_3D_batch(img,cropx,cropy,cropz):
+    img_cropped = np.zeros((cropx,cropy,cropz,img.shape[3]))
+    for i in range(img.shape[3]):
+        img_cropped[:,:,:,i] = crop_center_3D(img[:,:,:,i],cropx,cropy,cropz)
+    return img_cropped
 
 
 def display_reg(path_ref,path_mov,path_save_reg, sl):
@@ -308,76 +364,76 @@ def bwareafilt(mask, n=1, area_range=(0, np.inf)):
 
 
 
-def construct_transf_matrix(params, resize_factor, inds, device):
+# def construct_transf_matrix(params, resize_factor, inds, device):
     
-    angle_rad, tx, ty = params
+#     angle_rad, tx, ty = params
     
-    theta = torch.zeros((len(inds)), 3, 3).to(device)
-    theta[:,2,2] = 1
+#     theta = torch.zeros((len(inds)), 3, 3).to(device)
+#     theta[:,2,2] = 1
 
-    theta[:,0,0] = resize_factor * torch.cos(angle_rad[inds])
-    theta[:,1,1] = resize_factor * torch.cos(angle_rad[inds])
-    theta[:,0,1] = torch.sin(angle_rad[inds])
-    theta[:,1,0] = -torch.sin(angle_rad[inds])
+#     theta[:,0,0] = resize_factor * torch.cos(angle_rad[inds])
+#     theta[:,1,1] = resize_factor * torch.cos(angle_rad[inds])
+#     theta[:,0,1] = torch.sin(angle_rad[inds])
+#     theta[:,1,0] = -torch.sin(angle_rad[inds])
     
-    theta[:,0,2] = tx[inds]
-    theta[:,1,2] = ty[inds]
+#     theta[:,0,2] = tx[inds]
+#     theta[:,1,2] = ty[inds]
     
-    return theta
+#     return theta
 
 
-def construct_transf_matrix_3D(params, resize_factor, inds, device):
+# def construct_transf_matrix_3D(params, resize_factor, inds, device):
     
-    thx, thy, thz, tx, ty, tz = params
+#     thx, thy, thz, tx, ty, tz = params
     
     
-    theta = torch.zeros((len(inds)), 4, 4).to(device)
-    theta[:,3,3] = 1
+#     theta = torch.zeros((len(inds)), 4, 4).to(device)
+#     theta[:,3,3] = 1
     
-    R_z = torch.zeros((len(inds)), 3, 3).to(device)
-    R_z[:,2,2] = 1
-    R_z[:,0,0] = torch.cos(thz[inds])
-    R_z[:,0,1] = -torch.sin(thz[inds])
-    R_z[:,1,0] = torch.sin(thz[inds])
-    R_z[:,1,1] =  torch.cos(thz[inds])
+#     R_z = torch.zeros((len(inds)), 3, 3).to(device)
+#     R_z[:,2,2] = 1
+#     R_z[:,0,0] = torch.cos(thz[inds])
+#     R_z[:,0,1] = -torch.sin(thz[inds])
+#     R_z[:,1,0] = torch.sin(thz[inds])
+#     R_z[:,1,1] =  torch.cos(thz[inds])
     
-    R_y = torch.zeros((len(inds)), 3, 3).to(device)
-    R_y[:,1,1] = 1
-    R_y[:,0,0] = torch.cos(thy[inds])
-    R_y[:,2,0] = -torch.sin(thy[inds])
-    R_y[:,0,2] = torch.sin(thy[inds])
-    R_y[:,2,2] =  torch.cos(thy[inds])
+#     R_y = torch.zeros((len(inds)), 3, 3).to(device)
+#     R_y[:,1,1] = 1
+#     R_y[:,0,0] = torch.cos(thy[inds])
+#     R_y[:,2,0] = -torch.sin(thy[inds])
+#     R_y[:,0,2] = torch.sin(thy[inds])
+#     R_y[:,2,2] =  torch.cos(thy[inds])
     
-    R_x = torch.zeros((len(inds)), 3, 3).to(device)
-    R_x[:,0,0] = 1
-    R_x[:,1,1] = torch.cos(thx[inds])
-    R_x[:,2,1] = -torch.sin(thx[inds])
-    R_x[:,1,2] = torch.sin(thx[inds])
-    R_x[:,2,2] =  torch.cos(thx[inds])
+#     R_x = torch.zeros((len(inds)), 3, 3).to(device)
+#     R_x[:,0,0] = 1
+#     R_x[:,1,1] = torch.cos(thx[inds])
+#     R_x[:,2,1] = -torch.sin(thx[inds])
+#     R_x[:,1,2] = torch.sin(thx[inds])
+#     R_x[:,2,2] =  torch.cos(thx[inds])
     
-    R = torch.bmm( torch.bmm(R_z, R_y), R_x )
-    # R = torch.bmm(R_z, R_y)
+#     R = torch.bmm( torch.bmm(R_z, R_y), R_x )
+#     # R = torch.bmm(R_z, R_y)
     
-    T = torch.zeros((len(inds)), 3, 3).to(device)
-    T[:,0,0] = resize_factor
-    T[:,1,1] = resize_factor
-    T[:,2,2] = resize_factor
+#     T = torch.zeros((len(inds)), 3, 3).to(device)
+#     T[:,0,0] = resize_factor
+#     T[:,1,1] = resize_factor
+#     T[:,2,2] = resize_factor
  
-    theta[:,0:3,0:3] = torch.bmm( T , R )
+#     theta[:,0:3,0:3] = torch.bmm( T , R )
     
-    theta[:,0,3] = tx[inds]
-    theta[:,1,3] = ty[inds]
-    theta[:,2,3] = tz[inds]
+#     theta[:,0,3] = tx[inds]
+#     theta[:,1,3] = ty[inds]
+#     theta[:,2,3] = tz[inds]
 
-    # theta[:,0,0] = resize_factor * torch.cos(angle_rad[inds])
-    # theta[:,1,1] = resize_factor * torch.cos(angle_rad[inds])
-    # theta[:,0,1] = torch.sin(angle_rad[inds])
-    # theta[:,1,0] = -torch.sin(angle_rad[inds])
+#     # theta[:,0,0] = resize_factor * torch.cos(angle_rad[inds])
+#     # theta[:,1,1] = resize_factor * torch.cos(angle_rad[inds])
+#     # theta[:,0,1] = torch.sin(angle_rad[inds])
+#     # theta[:,1,0] = -torch.sin(angle_rad[inds])
     
-    # theta[:,0,2] = tx[inds]
-    # theta[:,1,2] = ty[inds]
+#     # theta[:,0,2] = tx[inds]
+#     # theta[:,1,2] = ty[inds]
     
-    return theta
+#     return theta
 
 
 def show_3D(imgs):
@@ -428,3 +484,49 @@ class Randomizer():
         output = output[order_corection,:,:]
         
         return output
+    
+class Timer(object):
+    def __init__(self, name=None):
+        self.name = name
+
+    def __enter__(self):
+        self.tstart = time.time()
+
+    def __exit__(self, type, value, traceback):
+        if self.name:
+            print('[%s]' % self.name,)
+        print('Elapsed: %s' % (time.time() - self.tstart))
+        
+        
+        
+def merge_Nifti(files, path_dir, path_save):
+    file_reader = sitk.ImageFileReader()
+    file_reader.SetImageIO("NiftiImageIO")
+    file_reader.SetFileName(path_dir + '\\' + files[0])
+    imgP = file_reader.Execute()
+    vel = imgP.GetSize()
+    
+    img = np.zeros((vel[0], vel[1], vel[2],len(files) ), dtype=(np.int16))
+    # img = img.squeeze()
+    # sImg = sitk.Image(list((vel[0],vel[1], vel[2],len(files)+1)), sitk.sitkInt16, 1 )
+    
+    for i,file in enumerate(files):
+        file_reader = sitk.ImageFileReader()
+        file_reader.SetImageIO("NiftiImageIO")
+        file_reader.SetFileName(path_dir + '\\' + file)
+        img1 = file_reader.Execute()
+        img1 = sitk.GetArrayFromImage(img1).astype(np.int16)
+        img1 = np.transpose(img1,(2,1,0))
+        # img[:,:,:,i+1] = img1[BB[0][0]:BB[0][1], BB[1][0]:BB[1][1], BB[2][0]:BB[2][1]]
+        img[:,:,:,i] = img1
+        
+        os.remove(path_dir + '\\' + file)
+    
+    OM = np.eye(4)*np.diag([-1,-1,1,1])
+    OM[1,3] = 239
+    data = nib.Nifti1Image(img, OM )  # Save axis for data (just identity)
+    
+    data.header.set_xyzt_units('mm')
+    # data.header.set
+    # data.header.SetDirection(imgP.GetDirection())
+    data.to_filename(path_save)  # Save as NiBabel file

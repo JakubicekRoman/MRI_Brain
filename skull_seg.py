@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Aug 31 10:44:37 2022
+Created on Tue Oct 18 19:20:54 2022
 
 @author: jakubicek
 """
+
 
 import sys
 import numpy as np
@@ -21,8 +22,8 @@ import Utilities as util
 
 
 
-# pathDir = 'C:\Data\Jakubicek\MRI_Brain\Ambrozek\Outputs'
-pathDir = 'C:\Data\Jakubicek\MRI_Brain\Bednarova\Outputs'
+pathDir = 'C:\Data\Jakubicek\MRI_Brain\Ambrozek\Outputs'
+# pathDir = 'C:\Data\Jakubicek\MRI_Brain\Bednarova\Outputs'
 # pathDir = 'C:\Data\Jakubicek\MRI_Brain\Cip\Outputs'
 
 D = [ f for f in os.listdir(pathDir) if os.path.isfile(pathDir+'\\'+f) if (pathDir+'\\'+f).__contains__('.nii') ]
@@ -42,60 +43,32 @@ DSC = [ f for f in D if (pathDir+'\\'+f).__contains__('DSC') ]
 
 # files =  T1 + T1ce + T2 + Flair + DTI + DCE + DSC
 files = DCE
-# name_file = 'DCE_cut'
-name_file = 'DCE_orig'
-# files = DSC
-# name_file = 'DSC_'
-# files = DTI
-# name_file = 'DTI_'
+name_file = 'DCE_skull'
 
-path_save = pathDir + '\\comp'
+
+out_dir = pathDir + '\\comp'
 
 # os.mkdir(pathDir)
 # os.mkdir(path_save)
 
 
-## finding Borders of BB mask
-file_reader = sitk.ImageFileReader()
-file_reader.SetImageIO("NiftiImageIO")
-file_reader.SetFileName(pathDir + '\\' + mask_Tumor[0])
-file_reader.ReadImageInformation()
-vel = file_reader.GetSize()
-maskSitk = file_reader.Execute()
-mask = sitk.GetArrayFromImage(file_reader.Execute())
-mask = np.transpose(mask,(2,1,0))
-
-
-res = util.bwareafilt(mask>0, 1)
-
-mask_filt = mask*res[0].astype(int)
-BB = util.bound_3D(mask_filt, 5)
-
-
-# files = files[0:2]
-
-# mask_filt = mask_filt[BB[0][0]:BB[0][1], BB[1][0]:BB[1][1], BB[2][0]:BB[2][1]].astype(np.int16)
-mask_filt = mask_filt.astype(np.int16)
-
-
-img = np.zeros((np.shape(mask_filt)[0], np.shape(mask_filt)[1], np.shape(mask_filt)[2],len(files)+1 ), dtype=(np.int16))
-sImg = sitk.Image(list((np.shape(mask_filt)[0], np.shape(mask_filt)[1], np.shape(mask_filt)[2],len(files)+1)), sitk.sitkInt16, 1 )
-
-# sImg_arr = sitk.GetArrayFromImage(sImg)
-# sImg_rec = sitk.GetImageFromArray(sImg_arr)
-# sImg_arr2 = sitk.GetArrayFromImage(sImg_rec)
-
-
 ## save mask to 4D image
-img[:,:,:,0] = mask_filt
+# img[:,:,:,0] = mask_filt
+img=[]
 
 ## save other images to 4D image
 for i,file in enumerate(files):
+    path_data =  ( pathDir + '\\' + file )
+
+    os.system( r'C:\\CaPTk_Full\\1.9.0\\bin\\deepMedic.exe ' + '-md C:\\CaPTk_Full\\1.9.0\\data\\deepMedic\\saved_models\\skullStripping -i '
+              + path_data + ' -o ' + out_dir + '\\Skull\\SkullMask.nii.gz')
+    
+    
     file_reader = sitk.ImageFileReader()
     file_reader.SetImageIO("NiftiImageIO")
-    file_reader.SetFileName(pathDir + '\\' + file)
+    file_reader.SetFileName(out_dir + '\\Skull\\SkullMask.nii.gz')
     img1 = file_reader.Execute()
-    img1 = sitk.GetArrayFromImage(img1).astype(np.int16)
+    img1 = sitk.GetArrayFromImage(img1).astype(np.uint8)
     img1 = np.transpose(img1,(2,1,0))
     # img[:,:,:,i+1] = img1[BB[0][0]:BB[0][1], BB[1][0]:BB[1][1], BB[2][0]:BB[2][1]]
     img[:,:,:,i+1] = img1
@@ -113,8 +86,7 @@ for i,file in enumerate(files):
    
 
 
-path_save_cur = path_save + '\\' + name_file + '.nii.gz'
-
+path_save_cur = out_dir + '\\' + name_file + '.nii.gz'
 # data = np.ones((32, 32, 15, 100), dtype=np.int16) # dummy data in numpy matrix
 data = nib.Nifti1Image(img, np.eye(4))  # Save axis for data (just identity)
 
@@ -196,6 +168,7 @@ indexE = indexE + len(DSC)
 params =  'DSC - num volumes: '+ str(len(DSC)) +', range: '+ str(indexS)+':'+str(indexE)
 text_file.write(params)
 text_file.close()
+
 
 
 
