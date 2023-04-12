@@ -320,8 +320,12 @@ fab.get_models()
 #%%
 import os
 
-cmd = 'C:\\Users\jakubicek\\envs\\MRI_Brain\\Scripts\\quantiphyse.exe'
+cmd = 'C:\\Users\jakubicek\\envs\\MRI_Brain\\Scripts\\quantiphyse'
 os.system(cmd)
+
+import quantiphyse 
+
+
 
 
 
